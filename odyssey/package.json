@@ -1,7 +1,7 @@
 {
   "name": "odyssey",
   "productName": "Odyssey",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Odyssey: biblioteca e emulador de PlayStation 2, com motor baseado no PCSX2.",
   "main": "main.js",
   "author": "Julio Lucena",
@@ -15,7 +15,8 @@
   "dependencies": {
     "@fontsource/big-shoulders-display": "^5.0.0",
     "@fontsource/ibm-plex-mono": "^5.0.0",
-    "@fontsource/ibm-plex-sans": "^5.0.0"
+    "@fontsource/ibm-plex-sans": "^5.0.0",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -33,7 +34,7 @@
       "src/**",
       "renderer/**",
       "build/icon.png",
-      "node_modules/@fontsource/**"
+      "node_modules/**"
     ],
     "extraResources": [
       {
@@ -63,6 +64,14 @@
     },
     "portable": {
       "artifactName": "Odyssey-Portatil-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JulioMLucena",
+        "repo": "Odyssey",
+        "releaseType": "release"
+      }
+    ]
   }
 }

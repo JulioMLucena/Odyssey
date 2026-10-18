@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('odyssey', {
   stop: () => ipcRenderer.invoke('engine:stop'),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
   onEngineState: (cb) => ipcRenderer.on('engine:state', (_e, s) => cb(s)),
+  updateState: () => ipcRenderer.invoke('update:state'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateState: (cb) => ipcRenderer.on('update:state', (_e, s) => cb(s)),
 });

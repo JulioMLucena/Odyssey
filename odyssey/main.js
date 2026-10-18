@@ -412,6 +412,59 @@ ipcMain.handle('open:external', (_e, url) => {
   if (/^https:\/\//.test(url)) shell.openExternal(url);
 });
 
+// ---------- updates ----------
+// The installed version updates itself from GitHub Releases (electron-updater downloads only the
+// changed blocks). The portable .exe can't replace itself, so it just tells the user a new one exists.
+
+const RELEASES_URL = 'https://github.com/JulioMLucena/Odyssey/releases/latest';
+const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+let update = { state: 'idle' }; // idle | checking | downloading | ready | available-portable | error
+
+function setUpdate(next) {
+  update = { ...next };
+  send('update:state', update);
+}
+
+function setupUpdater() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch {
+    return;
+  }
+  autoUpdater.autoDownload = !isPortable;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => setUpdate({ state: 'checking' }));
+  autoUpdater.on('update-not-available', () => setUpdate({ state: 'idle' }));
+  autoUpdater.on('update-available', (info) =>
+    setUpdate(isPortable ? { state: 'available-portable', version: info.version } : { state: 'downloading', version: info.version, percent: 0 })
+  );
+  autoUpdater.on('download-progress', (p) => setUpdate({ ...update, state: 'downloading', percent: Math.round(p.percent || 0) }));
+  autoUpdater.on('update-downloaded', (info) => setUpdate({ state: 'ready', version: info.version }));
+  autoUpdater.on('error', () => setUpdate({ state: 'idle' }));
+
+  const check = () => {
+    if (update.state === 'downloading' || update.state === 'ready') return;
+    autoUpdater.checkForUpdates().catch(() => setUpdate({ state: 'idle' }));
+  };
+  setTimeout(check, 4000);
+  setInterval(check, 60 * 60 * 1000);
+
+  ipcMain.handle('update:install', () => {
+    if (update.state === 'available-portable') {
+      shell.openExternal(RELEASES_URL);
+      return { ok: true };
+    }
+    if (update.state !== 'ready') return { ok: false };
+    if (running) return { ok: false, error: 'Feche o jogo antes de atualizar.' };
+    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    return { ok: true };
+  });
+}
+
+ipcMain.handle('update:state', () => update);
+
 // ---------- window ----------
 
 function createWindow() {
@@ -453,6 +506,7 @@ if (!gotLock) {
     loadStore();
     migrateLegacyBios();
     createWindow();
+    setupUpdater();
   });
   app.on('window-all-closed', () => {
     if (running) running.child.kill();

@@ -5,9 +5,18 @@ baseado no [PCSX2](https://github.com/PCSX2/pcsx2).
 
 ## Como baixar
 
-1. Abra a aba **Actions** do repositório e entre na execução mais recente de **🚀 Odyssey para Windows**.
-2. Em **Artifacts**, baixe **Odyssey-Windows**.
-3. Dentro do zip há o instalador (`Odyssey-Setup-x.y.z.exe`) e a versão portátil (`Odyssey-Portatil-x.y.z.exe`).
+Baixe o instalador `Odyssey-Setup-x.y.z.exe` na página de
+[Releases](https://github.com/JulioMLucena/Odyssey/releases/latest). Também há a versão portátil
+(`Odyssey-Portatil-x.y.z.exe`).
+
+## Atualizações
+
+A versão instalada procura atualizações sozinha ao abrir e a cada hora. Quando acha uma, baixa só as
+partes que mudaram e mostra **Reiniciar e atualizar** no topo. Se você fechar o Odyssey sem clicar, ela
+é aplicada no fechamento. A versão portátil só avisa que existe uma nova, porque não consegue se
+substituir.
+
+Cada envio para a branch `master` gera uma versão nova (`0.2.<número da build>`).
 
 ## Primeira vez
 

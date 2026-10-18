@@ -343,6 +343,33 @@
     render();
   });
 
+  // Update pill in the top bar.
+  function renderUpdate(u) {
+    const b = $('btnUpdate');
+    b.classList.remove('ready');
+    b.disabled = false;
+    if (u.state === 'downloading') {
+      b.hidden = false;
+      b.disabled = true;
+      b.textContent = `Baixando versão ${u.version} · ${u.percent || 0}%`;
+    } else if (u.state === 'ready') {
+      b.hidden = false;
+      b.classList.add('ready');
+      b.textContent = `Reiniciar e atualizar para ${u.version}`;
+    } else if (u.state === 'available-portable') {
+      b.hidden = false;
+      b.textContent = `Versão ${u.version} disponível`;
+    } else {
+      b.hidden = true;
+    }
+  }
+  $('btnUpdate').addEventListener('click', async () => {
+    const r = await api.installUpdate();
+    if (r && r.error) toast(r.error, true);
+  });
+  api.onUpdateState(renderUpdate);
+  api.updateState().then(renderUpdate);
+
   // Keyboard and gamepad navigation over the shelf.
   function columns() {
     const tiles = document.querySelectorAll('.tile');
