@@ -1,7 +1,7 @@
 {
   "name": "odyssey",
   "productName": "Odyssey",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Odyssey: biblioteca e emulador de PlayStation 2, com motor baseado no PCSX2.",
   "main": "main.js",
   "author": "Julio Lucena",

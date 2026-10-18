@@ -54,9 +54,18 @@ jobs:
         run: |
           $dir = Get-ChildItem _engine_artifacts -Directory | Where-Object { $_.Name -notlike '*-symbols' } | Select-Object -First 1
           if (-not $dir) { throw "Engine artifact not found" }
+          Write-Host "Engine artifact: $($dir.Name)"
           New-Item -ItemType Directory -Force engine | Out-Null
-          Copy-Item -Recurse -Force "$($dir.FullName)\*" engine\
-          Get-ChildItem engine -Filter "pcsx2-qt*.exe" | ForEach-Object { Write-Host "Engine: $($_.Name)" }
+          # The artifact name has [brackets], which PowerShell treats as wildcards in -Path.
+          # Piping the items binds them by LiteralPath, so the copy works.
+          Get-ChildItem -LiteralPath $dir.FullName | Copy-Item -Destination engine -Recurse -Force
+          $exe = Get-ChildItem engine -File | Where-Object { $_.Name -like 'pcsx2-qt*.exe' } | Select-Object -First 1
+          if (-not $exe) {
+            Get-ChildItem -Recurse engine | Select-Object -First 40 | ForEach-Object { Write-Host $_.FullName }
+            throw "Engine executable missing from odyssey/engine"
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path engine 'resources\GameIndex.yaml'))) { throw "GameIndex.yaml missing from the engine" }
+          Write-Host "Engine: $($exe.Name)"
 
       - name: Install launcher dependencies
         run: npm install --no-audit --no-fund
