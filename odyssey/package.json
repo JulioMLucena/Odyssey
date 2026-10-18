@@ -1,0 +1,68 @@
+{
+  "name": "odyssey",
+  "productName": "Odyssey",
+  "version": "0.1.0",
+  "description": "Odyssey: biblioteca e emulador de PlayStation 2, com motor baseado no PCSX2.",
+  "main": "main.js",
+  "author": "Julio Lucena",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/iso.test.js",
+    "dist": "electron-builder --win nsis portable --publish never"
+  },
+  "dependencies": {
+    "@fontsource/big-shoulders-display": "^5.0.0",
+    "@fontsource/ibm-plex-mono": "^5.0.0",
+    "@fontsource/ibm-plex-sans": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.juliolucena.odyssey",
+    "productName": "Odyssey",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "build/icon.png",
+      "node_modules/@fontsource/**"
+    ],
+    "extraResources": [
+      {
+        "from": "engine",
+        "to": "engine",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../COPYING.GPLv3",
+        "to": "LICENSE-GPLv3.txt"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Odyssey-Setup-${version}.exe",
+      "shortcutName": "Odyssey"
+    },
+    "portable": {
+      "artifactName": "Odyssey-Portatil-${version}.exe"
+    }
+  }
+}

@@ -94,6 +94,9 @@ static bool s_start_big_picture_mode = false;
 static bool s_start_fullscreen = false;
 static bool s_test_config_and_exit = false;
 static bool s_run_setup_wizard = false;
+// Odyssey: set by -odyssey when the Odyssey launcher starts the engine. Skips the first-run wizard,
+// because the launcher already handles BIOS import and game library setup. Needs proper testing.
+static bool s_odyssey_mode = false;
 static bool s_cleanup_after_update = false;
 static bool s_boot_and_debug = false;
 static std::atomic_int s_vm_locked_with_dialog = 0;
@@ -1380,7 +1383,12 @@ bool QtHost::InitializeConfig()
 		VMManager::SetDefaultSettings(*s_base_settings_interface, true, true, true, true, true);
 
 		// Flag for running the setup wizard if this is our first run. We want to run it next time if they don't finish it.
-		s_base_settings_interface->SetBoolValue("UI", "SetupWizardIncomplete", true);
+		s_base_settings_interface->SetBoolValue("UI", "SetupWizardIncomplete", !s_odyssey_mode);
+		if (s_odyssey_mode)
+		{
+			// Odyssey: the launcher owns the window flow, so don't ask before closing a game.
+			s_base_settings_interface->SetBoolValue("UI", "ConfirmShutdown", false);
+		}
 
 		// Make sure we can actually save the config, and the user doesn't have some permission issue.
 		if (!s_base_settings_interface->Save(&error))
@@ -1424,7 +1432,8 @@ bool QtHost::InitializeConfig()
 
 	// Setup wizard was incomplete last time?
 	s_run_setup_wizard =
-		s_run_setup_wizard || s_base_settings_interface->GetBoolValue("UI", "SetupWizardIncomplete", false);
+		s_run_setup_wizard ||
+		(!s_odyssey_mode && s_base_settings_interface->GetBoolValue("UI", "SetupWizardIncomplete", false));
 
 	// TODO: -nogui console block?
 
@@ -2138,6 +2147,7 @@ void QtHost::PrintCommandLineHelp(const std::string_view progname)
 	std::fprintf(stderr, "  -version: Displays version information and exits.\n");
 	std::fprintf(stderr, "  -batch: Enables batch mode (exits after shutting down).\n");
 	std::fprintf(stderr, "  -nogui: Hides main window while running (implies batch mode).\n");
+	std::fprintf(stderr, "  -odyssey: Started by the Odyssey launcher (skips the first-run setup wizard).\n");
 	std::fprintf(stderr, "  -portable: Force enable portable mode to store data in local PCSX2 path instead of the default configuration path. Overrides '-datapath'.\n");
 	std::fprintf(stderr, "  -datapath <path>: Specify the directory to be used for all application data.\n");
 	std::fprintf(stderr, "  -elf <file>: Overrides the boot ELF with the specified filename.\n");
@@ -2212,6 +2222,11 @@ bool QtHost::ParseCommandLineOptions(const QStringList& args, std::shared_ptr<VM
 			{
 				s_batch_mode = true;
 				s_nogui_mode = true;
+				continue;
+			}
+			else if (CHECK_ARG(QStringLiteral("-odyssey")))
+			{
+				s_odyssey_mode = true;
 				continue;
 			}
 			else if (CHECK_ARG(QStringLiteral("-portable")))

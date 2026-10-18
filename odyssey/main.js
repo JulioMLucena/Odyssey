@@ -1,0 +1,409 @@
+'use strict';
+
+const { app, BrowserWindow, ipcMain, dialog, shell, net } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+
+const { inspectIso } = require('./src/iso');
+const { loadGameIndex, lookup } = require('./src/gamedb');
+
+const COVER_URL = (serial) => `https://raw.githubusercontent.com/xlenore/ps2-covers/main/covers/default/${serial}.jpg`;
+const GAME_EXTENSIONS = new Set(['.iso']);
+
+let win = null;
+let running = null; // { child, key, startedAt }
+
+// ---------- paths ----------
+
+const userDir = () => app.getPath('userData');
+const storePath = () => path.join(userDir(), 'odyssey.json');
+const coversDir = () => path.join(userDir(), 'covers');
+const engineDataDir = () => path.join(userDir(), 'engine-data');
+const biosDir = () => path.join(engineDataDir(), 'bios');
+
+function bundledEngineDir() {
+  return app.isPackaged ? path.join(process.resourcesPath, 'engine') : path.join(__dirname, 'engine');
+}
+
+function findEngineExe(dir) {
+  try {
+    const exe = fs.readdirSync(dir).find((f) => /^pcsx2-qt.*\.exe$/i.test(f) && !/updater/i.test(f));
+    return exe ? path.join(dir, exe) : null;
+  } catch {
+    return null;
+  }
+}
+
+function enginePath() {
+  const custom = store.enginePath;
+  if (custom && fs.existsSync(custom)) return custom;
+  return findEngineExe(bundledEngineDir());
+}
+
+function gameIndexPath() {
+  const exe = enginePath();
+  const dir = exe ? path.dirname(exe) : bundledEngineDir();
+  return path.join(dir, 'resources', 'GameIndex.yaml');
+}
+
+// ---------- store ----------
+
+let store = { folders: [], fullscreen: true, enginePath: null, games: {}, stats: {} };
+
+function loadStore() {
+  try {
+    store = { ...store, ...JSON.parse(fs.readFileSync(storePath(), 'utf8')) };
+  } catch {
+    /* first run */
+  }
+}
+
+function saveStore() {
+  fs.mkdirSync(userDir(), { recursive: true });
+  const tmp = storePath() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
+  fs.renameSync(tmp, storePath());
+}
+
+// ---------- library ----------
+
+function walk(dir, depth, out) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory() && depth > 0) walk(full, depth - 1, out);
+    else if (e.isFile() && GAME_EXTENSIONS.has(path.extname(e.name).toLowerCase())) out.push(full);
+  }
+}
+
+function prettyFileName(file) {
+  return path
+    .basename(file, path.extname(file))
+    .replace(/\s*\((?:En|Fr|De|Es|It|Pt|Ja|Nl|Sv|No|Da|Fi|Pl|Ru)(?:,[A-Za-z]{2})*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function statKey(game) {
+  return game.serial || game.path;
+}
+
+function buildGame(file, info, db) {
+  const meta = lookup(db, info.serial);
+  const st = fs.statSync(file);
+  return {
+    path: file,
+    fileName: path.basename(file),
+    size: st.size,
+    mtime: st.mtimeMs,
+    platform: info.platform || 'unknown',
+    serial: info.serial || null,
+    title: (meta && meta.name) || prettyFileName(file),
+    region: info.region || null,
+    regionCode: (meta && meta.region) || null,
+    videoMode: info.videoMode || null,
+    version: info.version || null,
+    volume: info.volume || null,
+    compat: meta ? meta.compat : null,
+    compatLabel: meta ? meta.compatLabel : null,
+    error: info.ok ? null : info.reason,
+  };
+}
+
+function scanLibrary() {
+  const db = loadGameIndex(gameIndexPath());
+  const files = [];
+  for (const folder of store.folders) walk(folder, 3, files);
+
+  const games = {};
+  for (const file of files) {
+    let st;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      continue;
+    }
+    const cached = store.games[file];
+    if (cached && cached.size === st.size && cached.mtime === st.mtimeMs && cached.compat !== undefined) {
+      // Refresh DB fields in case the engine (and its GameIndex) was updated.
+      const meta = lookup(db, cached.serial);
+      games[file] = meta ? { ...cached, title: meta.name || cached.title, compat: meta.compat, compatLabel: meta.compatLabel } : cached;
+      continue;
+    }
+    let info;
+    try {
+      info = inspectIso(file);
+    } catch (e) {
+      info = { ok: false, reason: 'Não consegui ler o arquivo: ' + e.message };
+    }
+    games[file] = buildGame(file, info, db);
+  }
+  store.games = games;
+  saveStore();
+  return libraryView();
+}
+
+function libraryView() {
+  return Object.values(store.games)
+    .map((g) => {
+      const s = store.stats[statKey(g)] || {};
+      const cover = g.serial ? path.join(coversDir(), g.serial + '.jpg') : null;
+      return {
+        ...g,
+        playSeconds: s.seconds || 0,
+        lastPlayed: s.lastPlayed || null,
+        launches: s.launches || 0,
+        coverUrl: cover && fs.existsSync(cover) ? pathToFileURL(cover).href : null,
+      };
+    })
+    .sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0) || a.title.localeCompare(b.title, 'pt-BR'));
+}
+
+async function fetchCover(serial) {
+  if (!serial) return null;
+  const dest = path.join(coversDir(), serial + '.jpg');
+  if (fs.existsSync(dest)) return pathToFileURL(dest).href;
+  try {
+    const res = await net.fetch(COVER_URL(serial));
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 1024) return null;
+    fs.mkdirSync(coversDir(), { recursive: true });
+    fs.writeFileSync(dest, buf);
+    return pathToFileURL(dest).href;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- BIOS ----------
+
+function listBios() {
+  try {
+    return fs
+      .readdirSync(biosDir())
+      .filter((f) => {
+        try {
+          return fs.statSync(path.join(biosDir(), f)).isFile();
+        } catch {
+          return false;
+        }
+      })
+      .map((f) => ({ name: f, size: fs.statSync(path.join(biosDir(), f)).size }));
+  } catch {
+    return [];
+  }
+}
+
+// A PS2 BIOS is a 4 MB ROM that starts with a "RESET" entry in its ROMDIR table.
+function looksLikePs2Bios(file) {
+  const st = fs.statSync(file);
+  if (st.size < 4 * 1024 * 1024 || st.size > 8 * 1024 * 1024) return false;
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(64 * 1024);
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.includes(Buffer.from('RESET\0', 'latin1'));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// ---------- engine ----------
+
+function engineArgs(extra) {
+  return ['-odyssey', '-datapath', engineDataDir(), ...extra];
+}
+
+function launchEngine(args, key) {
+  const exe = enginePath();
+  if (!exe) return { ok: false, error: 'O motor do Odyssey não foi encontrado. Indique o executável em Ajustes.' };
+  if (running) return { ok: false, error: 'Já tem um jogo aberto. Feche ele antes de abrir outro.' };
+  fs.mkdirSync(biosDir(), { recursive: true });
+
+  const child = spawn(exe, engineArgs(args), { cwd: path.dirname(exe), detached: false, stdio: 'ignore' });
+  running = { child, key, startedAt: Date.now() };
+  child.on('error', (e) => finishRun(e.message));
+  child.on('exit', () => finishRun(null));
+  send('engine:state', { running: true, key });
+  return { ok: true };
+}
+
+function finishRun(error) {
+  if (!running) return;
+  const { key, startedAt } = running;
+  running = null;
+  if (key) {
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    const s = store.stats[key] || { seconds: 0, launches: 0 };
+    s.seconds += seconds;
+    s.launches += 1;
+    s.lastPlayed = Date.now();
+    store.stats[key] = s;
+    saveStore();
+  }
+  send('engine:state', { running: false, key, error });
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+}
+
+function send(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+// ---------- IPC ----------
+
+function status() {
+  return {
+    folders: store.folders,
+    fullscreen: store.fullscreen,
+    engine: enginePath(),
+    engineCustom: store.enginePath,
+    bios: listBios(),
+    biosDir: biosDir(),
+    running: running ? running.key : null,
+    version: app.getVersion(),
+  };
+}
+
+ipcMain.handle('status', () => status());
+ipcMain.handle('library:list', () => libraryView());
+ipcMain.handle('library:scan', () => scanLibrary());
+ipcMain.handle('library:cover', (_e, serial) => fetchCover(serial));
+
+ipcMain.handle('folders:add', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Escolha a pasta dos seus jogos', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return status();
+  if (!store.folders.includes(r.filePaths[0])) store.folders.push(r.filePaths[0]);
+  saveStore();
+  return status();
+});
+
+ipcMain.handle('folders:remove', (_e, folder) => {
+  store.folders = store.folders.filter((f) => f !== folder);
+  saveStore();
+  return status();
+});
+
+ipcMain.handle('bios:import', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Escolha o arquivo da BIOS do seu PS2',
+    properties: ['openFile'],
+    filters: [{ name: 'BIOS do PS2', extensions: ['bin', 'rom', 'BIN', 'ROM'] }, { name: 'Todos os arquivos', extensions: ['*'] }],
+  });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true, status: status() };
+  const src = r.filePaths[0];
+  if (!looksLikePs2Bios(src)) {
+    return { ok: false, error: 'Esse arquivo não parece uma BIOS de PS2. A BIOS tem 4 MB e é extraída do seu próprio console.', status: status() };
+  }
+  fs.mkdirSync(biosDir(), { recursive: true });
+  fs.copyFileSync(src, path.join(biosDir(), path.basename(src)));
+  return { ok: true, status: status() };
+});
+
+ipcMain.handle('bios:open', () => {
+  fs.mkdirSync(biosDir(), { recursive: true });
+  shell.openPath(biosDir());
+});
+
+ipcMain.handle('settings:fullscreen', (_e, on) => {
+  store.fullscreen = Boolean(on);
+  saveStore();
+  return status();
+});
+
+ipcMain.handle('settings:engine', async (_e, reset) => {
+  if (reset) {
+    store.enginePath = null;
+  } else {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Escolha o executável do motor (pcsx2-qt.exe)',
+      properties: ['openFile'],
+      filters: [{ name: 'Executável', extensions: ['exe'] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return status();
+    store.enginePath = r.filePaths[0];
+  }
+  saveStore();
+  return status();
+});
+
+ipcMain.handle('game:play', (_e, file) => {
+  const game = store.games[file];
+  if (!game) return { ok: false, error: 'Esse jogo não está mais na biblioteca. Atualize a lista.' };
+  if (!fs.existsSync(file)) return { ok: false, error: 'O arquivo do jogo não foi encontrado. Ele foi movido ou apagado?' };
+  if (listBios().length === 0) return { ok: false, needsBios: true, error: 'Falta a BIOS do PS2. Importe ela em Ajustes antes de jogar.' };
+  const args = ['-batch', '-nogui'];
+  if (store.fullscreen) args.push('-fullscreen');
+  args.push('--', file);
+  return launchEngine(args, statKey(game));
+});
+
+ipcMain.handle('game:reveal', (_e, file) => shell.showItemInFolder(file));
+
+ipcMain.handle('engine:settings', () => launchEngine([], null));
+
+ipcMain.handle('engine:stop', () => {
+  if (running) running.child.kill();
+  return { ok: true };
+});
+
+ipcMain.handle('open:external', (_e, url) => {
+  if (/^https:\/\//.test(url)) shell.openExternal(url);
+});
+
+// ---------- window ----------
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    backgroundColor: '#0b0d12',
+    title: 'Odyssey',
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.removeMenu();
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+  app.whenReady().then(() => {
+    loadStore();
+    createWindow();
+  });
+  app.on('window-all-closed', () => {
+    if (running) running.child.kill();
+    app.quit();
+  });
+}

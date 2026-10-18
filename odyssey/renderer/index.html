@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; style-src 'self'; font-src 'self'; script-src 'self'">
+  <title>Odyssey</title>
+  <link rel="stylesheet" href="../node_modules/@fontsource/big-shoulders-display/700.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource/big-shoulders-display/900.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource/ibm-plex-sans/400.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource/ibm-plex-sans/600.css">
+  <link rel="stylesheet" href="../node_modules/@fontsource/ibm-plex-mono/400.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 3 L19 16 L16 29 L13 16 Z" fill="currentColor"/><circle cx="16" cy="16" r="2.5" fill="var(--ink)"/></svg>
+      <span>ODYSSEY</span>
+    </div>
+    <label class="search" for="search">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="search" type="search" placeholder="Buscar na biblioteca" autocomplete="off">
+    </label>
+    <div class="top-actions">
+      <button id="btnScan" class="ghost" type="button">Atualizar biblioteca</button>
+      <button id="btnSettings" class="ghost" type="button">Ajustes</button>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- Onboarding -->
+    <section id="onboarding" class="onboarding" hidden>
+      <p class="eyebrow">Primeira viagem</p>
+      <h1>Vamos preparar o Odyssey</h1>
+      <ol class="steps">
+        <li id="stepFolder">
+          <div class="step-text">
+            <h3>Pasta dos jogos</h3>
+            <p>Escolha a pasta onde ficam suas ISOs de PS2. O Odyssey procura também nas subpastas.</p>
+            <p class="step-done" id="stepFolderDone" hidden></p>
+          </div>
+          <button class="primary" id="obFolder" type="button">Escolher pasta</button>
+        </li>
+        <li id="stepBios">
+          <div class="step-text">
+            <h3>BIOS do PS2</h3>
+            <p>O motor precisa da BIOS tirada do seu próprio PS2, um arquivo de 4 MB. Ela não vem junto por ser software da Sony.</p>
+            <p class="step-done" id="stepBiosDone" hidden></p>
+          </div>
+          <button class="primary" id="obBios" type="button">Importar BIOS</button>
+        </li>
+      </ol>
+      <button class="link" id="obSkip" type="button">Ver a biblioteca mesmo assim</button>
+    </section>
+
+    <!-- Library -->
+    <section id="library" class="library" hidden>
+      <article class="feature" id="feature" aria-live="polite">
+        <div class="feature-cover" id="featureCover"></div>
+        <div class="feature-info">
+          <p class="eyebrow" id="featureEyebrow"></p>
+          <h1 id="featureTitle"></h1>
+          <dl class="facts">
+            <div><dt>Serial</dt><dd id="fSerial" class="mono"></dd></div>
+            <div><dt>Região</dt><dd id="fRegion"></dd></div>
+            <div><dt>Vídeo</dt><dd id="fVideo" class="mono"></dd></div>
+            <div><dt>Tamanho</dt><dd id="fSize" class="mono"></dd></div>
+            <div><dt>Tempo jogado</dt><dd id="fTime" class="mono"></dd></div>
+            <div><dt>Última vez</dt><dd id="fLast"></dd></div>
+          </dl>
+          <div class="compat" id="fCompat">
+            <span class="compat-label">Compatibilidade</span>
+            <span class="pips" id="fPips" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            <span id="fCompatText"></span>
+          </div>
+          <p class="warn" id="fError" hidden></p>
+          <div class="feature-actions">
+            <button class="primary big" id="btnPlay" type="button">Jogar</button>
+            <button class="ghost" id="btnReveal" type="button">Mostrar arquivo</button>
+          </div>
+        </div>
+      </article>
+
+      <div class="shelf-head">
+        <h2>Biblioteca</h2>
+        <span class="count mono" id="count"></span>
+      </div>
+      <div class="shelf" id="shelf" role="listbox" aria-label="Jogos"></div>
+      <p class="empty" id="empty" hidden></p>
+    </section>
+  </main>
+
+  <!-- Now playing -->
+  <div class="playing" id="playing" hidden>
+    <div class="playing-card">
+      <p class="eyebrow">Em viagem</p>
+      <h2 id="playingTitle"></h2>
+      <p class="muted">O jogo está aberto na janela do motor. Para sair, use Esc e escolha encerrar, ou feche por aqui.</p>
+      <button class="ghost" id="btnStop" type="button">Fechar o jogo</button>
+    </div>
+  </div>
+
+  <!-- Settings drawer -->
+  <aside class="drawer" id="drawer" hidden aria-label="Ajustes">
+    <div class="drawer-head">
+      <h2>Ajustes</h2>
+      <button class="ghost" id="btnCloseSettings" type="button">Fechar</button>
+    </div>
+
+    <section class="setting">
+      <h3>Pastas de jogos</h3>
+      <ul class="folders" id="folderList"></ul>
+      <button class="ghost" id="btnAddFolder" type="button">Adicionar pasta</button>
+    </section>
+
+    <section class="setting">
+      <h3>BIOS</h3>
+      <ul class="folders" id="biosList"></ul>
+      <div class="row">
+        <button class="ghost" id="btnBios" type="button">Importar BIOS</button>
+        <button class="ghost" id="btnBiosFolder" type="button">Abrir pasta da BIOS</button>
+      </div>
+    </section>
+
+    <section class="setting">
+      <h3>Tela</h3>
+      <label class="toggle" for="optFullscreen">
+        <input type="checkbox" id="optFullscreen">
+        <span>Abrir os jogos em tela cheia</span>
+      </label>
+    </section>
+
+    <section class="setting">
+      <h3>Motor</h3>
+      <p class="muted mono small" id="enginePath"></p>
+      <div class="row">
+        <button class="ghost" id="btnEngineSettings" type="button">Gráficos e controles</button>
+        <button class="ghost" id="btnEngine" type="button">Trocar executável</button>
+        <button class="link" id="btnEngineReset" type="button" hidden>Usar o motor embutido</button>
+      </div>
+      <p class="muted small">Gráficos, controles e memory cards são configurados na janela do motor. As mudanças valem para todos os jogos.</p>
+    </section>
+
+    <footer class="credits small muted">
+      Odyssey <span id="version"></span>. O motor é baseado no
+      <a href="https://github.com/PCSX2/pcsx2" id="lnkPcsx2">PCSX2</a>, software livre sob a licença GPL v3.
+    </footer>
+  </aside>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

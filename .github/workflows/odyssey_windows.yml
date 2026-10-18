@@ -1,0 +1,77 @@
+name: 🚀 Odyssey para Windows
+
+# Builds the Odyssey engine (our fork of PCSX2) and packs it inside the Electron launcher.
+# The result is the "Odyssey-Windows" artifact: an installer and a portable .exe.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  engine_deps:
+    name: "Motor: dependências"
+    uses: ./.github/workflows/windows_deps_build.yml
+
+  engine:
+    name: "Motor"
+    needs: engine_deps
+    uses: ./.github/workflows/windows_build_qt.yml
+    with:
+      jobName: "Odyssey Engine (SSE4)"
+      artifactPrefixName: "Odyssey-engine"
+      configuration: Release
+      # SSE4 runs on every Intel/AMD CPU from the last ~15 years.
+      simd: "SSE4"
+    secrets: inherit
+
+  launcher:
+    name: "Launcher Electron"
+    needs: engine
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: odyssey
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download engine build
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Odyssey-engine-*
+          path: odyssey/_engine_artifacts
+
+      - name: Place engine inside the launcher
+        shell: pwsh
+        run: |
+          $dir = Get-ChildItem _engine_artifacts -Directory | Where-Object { $_.Name -notlike '*-symbols' } | Select-Object -First 1
+          if (-not $dir) { throw "Engine artifact not found" }
+          New-Item -ItemType Directory -Force engine | Out-Null
+          Copy-Item -Recurse -Force "$($dir.FullName)\*" engine\
+          Get-ChildItem engine -Filter "pcsx2-qt*.exe" | ForEach-Object { Write-Host "Engine: $($_.Name)" }
+
+      - name: Install launcher dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Test ISO reader
+        run: npm test
+
+      - name: Build Odyssey
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Upload Odyssey
+        uses: actions/upload-artifact@v4
+        with:
+          name: Odyssey-Windows
+          path: |
+            odyssey/dist/*.exe
