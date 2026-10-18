@@ -27,8 +27,8 @@ Gráficos, controles e memory cards ficam em **Ajustes → Gráficos e controles
 | Motor | resto do repositório | Fork do PCSX2. A opção `-odyssey` pula o assistente de primeira execução. |
 | Build | `.github/workflows/odyssey_windows.yml` | Compila o motor (SSE4) e empacota tudo com o electron-builder. |
 
-O launcher guarda as configurações do motor em `%APPDATA%\Odyssey\engine-data`, separado de qualquer PCSX2
-instalado no PC.
+O launcher guarda as configurações do motor em `%APPDATA%\Odyssey\engine-data\PCSX2`, separado de qualquer
+PCSX2 instalado no PC. As BIOS ficam em `...\PCSX2\bios`, e o Odyssey escolhe a da mesma região do jogo.
 
 ## Licença
 

@@ -3,11 +3,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 
 const { inspectIso } = require('./src/iso');
 const { loadGameIndex, lookup } = require('./src/gamedb');
+const { biosInfo, pickBios, setIniValue } = require('./src/bios');
 
 const COVER_URL = (serial) => `https://raw.githubusercontent.com/xlenore/ps2-covers/main/covers/default/${serial}.jpg`;
 const GAME_EXTENSIONS = new Set(['.iso']);
@@ -21,7 +22,10 @@ const userDir = () => app.getPath('userData');
 const storePath = () => path.join(userDir(), 'odyssey.json');
 const coversDir = () => path.join(userDir(), 'covers');
 const engineDataDir = () => path.join(userDir(), 'engine-data');
-const biosDir = () => path.join(engineDataDir(), 'bios');
+// The engine appends "PCSX2" to whatever -datapath it gets, so its real data root is engine-data/PCSX2.
+const engineRootDir = () => path.join(engineDataDir(), 'PCSX2');
+const biosDir = () => path.join(engineRootDir(), 'bios');
+const legacyBiosDir = () => path.join(engineDataDir(), 'bios');
 
 function bundledEngineDir() {
   return app.isPackaged ? path.join(process.resourcesPath, 'engine') : path.join(__dirname, 'engine');
@@ -189,16 +193,61 @@ function listBios() {
   try {
     return fs
       .readdirSync(biosDir())
-      .filter((f) => {
-        try {
-          return fs.statSync(path.join(biosDir(), f)).isFile();
-        } catch {
-          return false;
-        }
-      })
-      .map((f) => ({ name: f, size: fs.statSync(path.join(biosDir(), f)).size }));
+      .map((f) => biosInfo(path.join(biosDir(), f)))
+      .filter(Boolean);
   } catch {
     return [];
+  }
+}
+
+// Points the engine at the BIOS whose region matches the game, through [Filenames] BIOS in
+// inis/PCSX2.ini. The engine rejects an INI without its own SettingsVersion, so on the very first
+// launch we let it write its defaults with -testconfig (initializes config and exits) and then edit.
+function selectBiosFor(serial) {
+  const bios = pickBios(listBios(), serial);
+  if (!bios) return null;
+  const ini = path.join(engineRootDir(), 'inis', 'PCSX2.ini');
+  if (!fs.existsSync(ini)) {
+    const exe = enginePath();
+    if (exe) {
+      spawnSync(exe, engineArgs(['-testconfig']), { cwd: path.dirname(exe), timeout: 30000, windowsHide: true, stdio: 'ignore' });
+    }
+  }
+  try {
+    const text = fs.readFileSync(ini, 'utf8');
+    fs.writeFileSync(ini, setIniValue(text, 'Filenames', 'BIOS', bios.name));
+    return bios;
+  } catch {
+    // No INI yet: the engine will pick a BIOS from the folder on its own.
+    return null;
+  }
+}
+
+// Odyssey 0.1.0/0.1.1 imported BIOS files into engine-data/bios, which the engine never reads.
+// Move them to the folder the engine actually searches.
+function migrateLegacyBios() {
+  let files;
+  try {
+    files = fs.readdirSync(legacyBiosDir());
+  } catch {
+    return;
+  }
+  fs.mkdirSync(biosDir(), { recursive: true });
+  for (const f of files) {
+    const src = path.join(legacyBiosDir(), f);
+    const dest = path.join(biosDir(), f);
+    try {
+      if (!fs.statSync(src).isFile()) continue;
+      if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    } catch {
+      /* leave it; the user can import again */
+    }
+  }
+  try {
+    fs.rmdirSync(legacyBiosDir());
+  } catch {
+    /* not empty or already gone */
   }
 }
 
@@ -342,10 +391,12 @@ ipcMain.handle('game:play', (_e, file) => {
   if (!game) return { ok: false, error: 'Esse jogo não está mais na biblioteca. Atualize a lista.' };
   if (!fs.existsSync(file)) return { ok: false, error: 'O arquivo do jogo não foi encontrado. Ele foi movido ou apagado?' };
   if (listBios().length === 0) return { ok: false, needsBios: true, error: 'Falta a BIOS do PS2. Importe ela em Ajustes antes de jogar.' };
+  const bios = selectBiosFor(game.serial);
   const args = ['-batch', '-nogui'];
   if (store.fullscreen) args.push('-fullscreen');
   args.push('--', file);
-  return launchEngine(args, statKey(game));
+  const r = launchEngine(args, statKey(game));
+  return bios ? { ...r, bios: bios.name } : r;
 });
 
 ipcMain.handle('game:reveal', (_e, file) => shell.showItemInFolder(file));
@@ -400,6 +451,7 @@ if (!gotLock) {
   });
   app.whenReady().then(() => {
     loadStore();
+    migrateLegacyBios();
     createWindow();
   });
   app.on('window-all-closed', () => {

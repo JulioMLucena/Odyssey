@@ -83,3 +83,43 @@ if (fs.existsSync(engineIndex)) {
 }
 
 console.log('ISO reader: all tests passed');
+
+// ---------- BIOS helpers ----------
+const { readRomver, pickBios, setIniValue } = require('../src/bios');
+
+function fakeBios(romver) {
+  const buf = Buffer.alloc(0x3000);
+  const entries = [
+    ['RESET', 0x2000],
+    ['ROMDIR', 0x40],
+    ['EXTINFO', 0x10],
+    ['ROMVER', 0x10],
+  ];
+  let off = 0;
+  const dirAt = 0x100;
+  entries.forEach(([name, size], i) => {
+    const p = dirAt + i * 16;
+    buf.write(name, p, 'latin1');
+    buf.writeUInt32LE(size, p + 12);
+    if (name === 'ROMVER') buf.write(romver, off, 'latin1');
+    off += (size + 15) & ~15;
+  });
+  return buf;
+}
+assert.strictEqual(readRomver(fakeBios('0230EC20040614')), '0230EC20040614');
+const list = [
+  { name: 'SCPH-90000 (JP).bin', romver: '0250JC', region: 'J' },
+  { name: 'SCPH-90001 (USA).bin', romver: '0250AC', region: 'A' },
+  { name: 'SCPH-90004 (EU).bin', romver: '0250EC', region: 'E' },
+];
+assert.strictEqual(pickBios(list, 'SLES-51156').name, 'SCPH-90004 (EU).bin');
+assert.strictEqual(pickBios(list, 'SLUS-20312').name, 'SCPH-90001 (USA).bin');
+assert.strictEqual(pickBios(list, 'SLPM-65051').name, 'SCPH-90000 (JP).bin');
+assert.strictEqual(pickBios([list[0]], 'SLES-51156').name, 'SCPH-90000 (JP).bin');
+
+const ini = '[UI]\nSettingsVersion = 1\n\n[Filenames]\nBIOS = \n\n[EmuCore]\nCdvdShareWrite = false\n';
+assert.ok(setIniValue(ini, 'Filenames', 'BIOS', 'x.bin').includes('[Filenames]\nBIOS = x.bin\n'));
+const noKey = setIniValue('[UI]\nA = 1\n\n[Filenames]\nOther = 2\n\n[X]\nY = 3\n', 'Filenames', 'BIOS', 'x.bin');
+assert.ok(noKey.includes('Other = 2\nBIOS = x.bin\n\n[X]'));
+assert.ok(setIniValue('[UI]\nA = 1\n', 'Filenames', 'BIOS', 'x.bin').endsWith('[Filenames]\nBIOS = x.bin\n'));
+console.log('BIOS helpers: all tests passed');

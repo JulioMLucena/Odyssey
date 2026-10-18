@@ -192,7 +192,7 @@
     for (const b of status.bios) {
       const li = document.createElement('li');
       const span = document.createElement('span');
-      span.textContent = `${b.name} · ${fmtSize(b.size)}`;
+      span.textContent = `${b.name} · ${b.regionName || 'região desconhecida'}`;
       li.appendChild(span);
       bl.appendChild(li);
     }
