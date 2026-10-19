@@ -10,15 +10,17 @@ const { inspectIso } = require('./src/iso');
 const { loadGameIndex, lookup } = require('./src/gamedb');
 const { biosInfo, pickBios, setIniValue } = require('./src/bios');
 const { inspectDreamcast, chdKind, MAGIC: KATANA } = require('./src/dreamcast');
+const { isPs4GameDir, isAddonDir, inspectPs4Dir } = require('./src/ps4');
 
 const COVER_URL = (serial) => `https://raw.githubusercontent.com/xlenore/ps2-covers/main/covers/default/${serial}.jpg`;
 const GAME_EXTENSIONS = new Set(['.iso', '.gdi', '.cdi', '.chd']);
 // Bump when the way games are identified changes, so cached entries get inspected again.
-const LIBRARY_VERSION = 2;
+const LIBRARY_VERSION = 3;
 
 const SYSTEMS = {
   ps2: { name: 'PlayStation 2', needsBios: true },
   dreamcast: { name: 'Dreamcast', needsBios: false },
+  ps4: { name: 'PlayStation 4', needsBios: false },
 };
 
 let win = null;
@@ -83,6 +85,40 @@ function flycastPath() {
   }
 }
 
+// ---------- PS4 engine (shadPS4) ----------
+// shadPS4 keeps its config, saves and sys_modules in a "user" folder inside its working directory,
+// so it also runs from a copy in Odyssey's data folder. The copy is refreshed when VERSION.txt changes.
+const shadHome = () => path.join(userDir(), 'engines', 'shadps4');
+
+function bundledShadDir() {
+  const dir = app.isPackaged ? path.join(process.resourcesPath, 'engines', 'shadps4') : path.join(__dirname, 'engines', 'shadps4');
+  return fs.existsSync(path.join(dir, 'shadPS4.exe')) ? dir : null;
+}
+
+function readText(p) {
+  try {
+    return fs.readFileSync(p, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function shadPath() {
+  const src = bundledShadDir();
+  if (!src) return null;
+  const home = shadHome();
+  try {
+    if (readText(path.join(src, 'VERSION.txt')) !== readText(path.join(home, 'VERSION.txt')) || !fs.existsSync(path.join(home, 'shadPS4.exe'))) {
+      fs.mkdirSync(home, { recursive: true });
+      for (const f of fs.readdirSync(src)) fs.cpSync(path.join(src, f), path.join(home, f), { recursive: true, force: true });
+    }
+    for (const sub of ['sys_modules', 'fonts']) fs.mkdirSync(path.join(home, 'user', sub), { recursive: true });
+    return path.join(home, 'shadPS4.exe');
+  } catch {
+    return path.join(src, 'shadPS4.exe');
+  }
+}
+
 function gameIndexPath() {
   const exe = enginePath();
   const dir = exe ? path.dirname(exe) : bundledEngineDir();
@@ -119,6 +155,10 @@ function walk(dir, depth, out) {
   }
   for (const e of entries) {
     const full = path.join(dir, e.name);
+    if (e.isDirectory() && isPs4GameDir(full)) {
+      if (!isAddonDir(full)) out.push(full);
+      continue;
+    }
     if (e.isDirectory() && depth > 0) walk(full, depth - 1, out);
     else if (e.isFile() && GAME_EXTENSIONS.has(path.extname(e.name).toLowerCase())) out.push(full);
   }
@@ -138,6 +178,7 @@ function prettyFileName(file) {
 function gameTitle(file, info) {
   const fromFile = prettyFileName(file);
   const generic = /^(disc|disk|game|track\s*\d*|cd\s*\d*)$/i.test(fromFile);
+  if (info.platform === 'ps4' && info.internalTitle) return info.internalTitle;
   if (generic && info.internalTitle) {
     return info.internalTitle.toLowerCase().replace(/(^|[\s:-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
   }
@@ -150,6 +191,7 @@ function statKey(game) {
 }
 
 function inspectFile(file) {
+  if (isPs4GameDir(file)) return inspectPs4Dir(file);
   const ext = path.extname(file).toLowerCase();
   if (ext === '.gdi' || ext === '.cdi') return inspectDreamcast(file);
   if (ext === '.chd') {
@@ -178,7 +220,7 @@ function buildGame(file, info, db) {
   return {
     path: file,
     fileName: path.basename(file),
-    size: st.size,
+    size: st.isDirectory() ? null : st.size,
     mtime: st.mtimeMs,
     platform: info.platform || 'unknown',
     serial: info.serial || null,
@@ -191,6 +233,7 @@ function buildGame(file, info, db) {
     compat: meta ? meta.compat : null,
     compatLabel: meta ? meta.compatLabel : null,
     error: info.ok ? null : info.reason,
+    icon: info.icon || null,
     v: LIBRARY_VERSION,
   };
 }
@@ -209,7 +252,7 @@ function scanLibrary() {
       continue;
     }
     const cached = store.games[file];
-    if (cached && cached.size === st.size && cached.mtime === st.mtimeMs && cached.v === LIBRARY_VERSION) {
+    if (cached && (st.isDirectory() || cached.size === st.size) && cached.mtime === st.mtimeMs && cached.v === LIBRARY_VERSION) {
       // Refresh DB fields in case the engine (and its GameIndex) was updated.
       const meta = cached.platform === 'ps2' ? lookup(db, cached.serial) : null;
       games[file] = meta ? { ...cached, title: meta.name || cached.title, compat: meta.compat, compatLabel: meta.compatLabel } : cached;
@@ -232,7 +275,7 @@ function libraryView() {
   return Object.values(store.games)
     .map((g) => {
       const s = store.stats[statKey(g)] || {};
-      const cover = g.serial && g.platform === 'ps2' ? path.join(coversDir(), g.serial + '.jpg') : null;
+      const cover = g.icon || (g.serial && g.platform === 'ps2' ? path.join(coversDir(), g.serial + '.jpg') : null);
       return {
         ...g,
         playSeconds: s.seconds || 0,
@@ -396,6 +439,8 @@ function status() {
     engineCustom: store.enginePath,
     bios: listBios(),
     dreamcast: Boolean(bundledFlycast()),
+    ps4: Boolean(bundledShadDir()),
+    ps4Modules: path.join(shadHome(), 'user', 'sys_modules'),
     biosDir: biosDir(),
     running: running ? running.key : null,
     version: app.getVersion(),
@@ -437,6 +482,12 @@ ipcMain.handle('bios:import', async () => {
   return { ok: true, status: status() };
 });
 
+ipcMain.handle('ps4:modules', () => {
+  const dir = path.join(shadHome(), 'user', 'sys_modules');
+  fs.mkdirSync(dir, { recursive: true });
+  shell.openPath(dir);
+});
+
 ipcMain.handle('bios:open', () => {
   fs.mkdirSync(biosDir(), { recursive: true });
   shell.openPath(biosDir());
@@ -473,6 +524,13 @@ ipcMain.handle('game:play', (_e, file) => {
     if (!exe) return { ok: false, error: 'O motor de Dreamcast não veio nesta versão do Odyssey.' };
     const args = ['-config', `window:fullscreen=${store.fullscreen ? 'yes' : 'no'}`, file];
     return startProcess(exe, args, statKey(game));
+  }
+  if (game.platform === 'ps4') {
+    const exe = shadPath();
+    if (!exe) return { ok: false, error: 'O motor de PS4 não veio nesta versão do Odyssey.' };
+    const eboot = path.join(file, 'eboot.bin');
+    if (!fs.existsSync(eboot)) return { ok: false, error: 'Não achei o eboot.bin nessa pasta de jogo.' };
+    return startProcess(exe, ['-g', eboot, '-f', store.fullscreen ? 'true' : 'false'], statKey(game));
   }
   if (game.platform !== 'ps2') return { ok: false, error: 'Esse disco ainda não tem um motor no Odyssey.' };
   if (listBios().length === 0) return { ok: false, needsBios: true, error: 'Falta a BIOS do PS2. Importe ela em Ajustes antes de jogar.' };

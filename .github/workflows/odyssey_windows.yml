@@ -151,6 +151,26 @@ jobs:
           Set-Content engines/flycast/VERSION.txt "$($rel.tagName) ($($asset.name))"
           Write-Host "Flycast: $($exe.Length) bytes"
 
+      - name: Download the PS4 engine (shadPS4)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Official shadPS4 release for Windows x64 (GPL v2, source at github.com/shadps4-emu/shadPS4).
+        run: |
+          $rel = gh release view --repo shadps4-emu/shadPS4 --json tagName,assets | ConvertFrom-Json
+          Write-Host "shadPS4 $($rel.tagName)"
+          $rel.assets | ForEach-Object { Write-Host "  asset: $($_.name)" }
+          $asset = $rel.assets | Where-Object { $_.name -match '\.zip$' -and $_.name -match 'win' -and $_.name -notmatch 'qt|arm|pdb|symbols' } | Select-Object -First 1
+          if (-not $asset) { throw "No Windows shadPS4 build in release $($rel.tagName)" }
+          gh release download $rel.tagName --repo shadps4-emu/shadPS4 --pattern $asset.name --dir _shadps4
+          Expand-Archive -LiteralPath (Join-Path _shadps4 $asset.name) -DestinationPath _shadps4/x -Force
+          $exe = Get-ChildItem _shadps4/x -Recurse -Filter shadPS4.exe | Select-Object -First 1
+          if (-not $exe) { throw "shadPS4.exe not found in $($asset.name)" }
+          New-Item -ItemType Directory -Force engines/shadps4 | Out-Null
+          Get-ChildItem -LiteralPath $exe.DirectoryName | Copy-Item -Destination engines/shadps4 -Recurse -Force
+          Set-Content engines/shadps4/VERSION.txt "$($rel.tagName) ($($asset.name))"
+          Get-ChildItem engines/shadps4 | ForEach-Object { Write-Host "  $($_.Name)" }
+
       - name: Install launcher dependencies
         run: npm install --no-audit --no-fund
 

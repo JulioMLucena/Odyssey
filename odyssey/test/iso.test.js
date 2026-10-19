@@ -163,3 +163,48 @@ assert.strictEqual(chdKind(path.join(dcDir, 'a.chd')), 'dreamcast');
 assert.strictEqual(chdKind(path.join(dcDir, 'b.chd')), 'ps2');
 fs.rmSync(dcDir, { recursive: true, force: true });
 console.log('Dreamcast reader: all tests passed');
+
+// ---------- PS4 ----------
+const { parseSfo, isPs4GameDir, isAddonDir, inspectPs4Dir } = require('../src/ps4');
+function sfo(entries) {
+  const keys = Buffer.concat(entries.map(([k]) => Buffer.from(k + '\0', 'latin1')));
+  const datas = entries.map(([, v]) => (typeof v === 'number' ? (() => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; })() : Buffer.from(v + '\0', 'utf8')));
+  const head = Buffer.alloc(20 + entries.length * 16);
+  head.write('\0PSF', 0, 'latin1');
+  head.writeUInt32LE(0x101, 4);
+  const keyTable = head.length;
+  const keysPadded = Buffer.concat([keys, Buffer.alloc((4 - (keys.length % 4)) % 4)]);
+  const dataTable = keyTable + keysPadded.length;
+  head.writeUInt32LE(keyTable, 8);
+  head.writeUInt32LE(dataTable, 12);
+  head.writeUInt32LE(entries.length, 16);
+  let ko = 0, dof = 0;
+  entries.forEach(([k, v], i) => {
+    const e = 20 + i * 16;
+    head.writeUInt16LE(ko, e);
+    head.writeUInt16LE(typeof v === 'number' ? 0x0404 : 0x0204, e + 2);
+    head.writeUInt32LE(datas[i].length, e + 4);
+    head.writeUInt32LE(datas[i].length, e + 8);
+    head.writeUInt32LE(dof, e + 12);
+    ko += k.length + 1;
+    dof += datas[i].length;
+  });
+  return Buffer.concat([head, keysPadded, ...datas]);
+}
+const p4 = fs.mkdtempSync(path.join(os.tmpdir(), 'odyssey-ps4-'));
+const g = path.join(p4, 'CUSA00001');
+fs.mkdirSync(path.join(g, 'sce_sys'), { recursive: true });
+fs.writeFileSync(path.join(g, 'eboot.bin'), 'x');
+fs.writeFileSync(path.join(g, 'sce_sys', 'param.sfo'), sfo([['APP_VER', '01.02'], ['CONTENT_ID', 'EP9000-CUSA00001_00-GAME000000000000'], ['TITLE', 'Bloodborne™'], ['TITLE_ID', 'CUSA00001'], ['PARENTAL_LEVEL', 5]]));
+assert.ok(isPs4GameDir(g));
+assert.ok(isAddonDir(path.join(p4, 'CUSA00001-patch')));
+assert.ok(!isAddonDir(g));
+const info4 = inspectPs4Dir(g);
+assert.strictEqual(info4.platform, 'ps4');
+assert.strictEqual(info4.serial, 'CUSA00001');
+assert.strictEqual(info4.internalTitle, 'Bloodborne™');
+assert.strictEqual(info4.version, '01.02');
+assert.strictEqual(info4.region, 'Europa');
+assert.strictEqual(parseSfo(Buffer.from('nope')), null);
+fs.rmSync(p4, { recursive: true, force: true });
+console.log('PS4 reader: all tests passed');

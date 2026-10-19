@@ -6,8 +6,9 @@ Odyssey é um hub de emuladores para Windows: uma biblioteca em Electron que abr
 | --- | --- | --- | --- |
 | PlayStation 2 | fork do [PCSX2](https://github.com/PCSX2/pcsx2) (GPL v3) | `.iso`, `.chd` | a do seu PS2 |
 | Dreamcast | [Flycast](https://github.com/flyinghead/flycast) (GPL v2), build oficial | `.gdi`, `.cdi`, `.chd` | não precisa |
+| PlayStation 4 | [shadPS4](https://github.com/shadps4-emu/shadPS4) (GPL v2), build oficial | pasta extraída `CUSAxxxxx` com `eboot.bin` | módulos `.sprx` do seu PS4 ajudam alguns jogos |
 
-O Flycast guarda configurações e saves de VMU em `%APPDATA%\Odyssey\engines\flycast`.
+O Flycast guarda configurações e saves de VMU em `%APPDATA%\Odyssey\engines\flycast`, e o shadPS4 guarda os dele em `%APPDATA%\Odyssey\engines\shadps4\user`.
 
 ## Como baixar
 

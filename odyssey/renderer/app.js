@@ -11,9 +11,9 @@
   let skipOnboarding = false;
   let system = 'all';
 
-  const SYSTEM_NAMES = { ps2: 'PlayStation 2', dreamcast: 'Dreamcast', ps1: 'PlayStation', unknown: 'Disco desconhecido' };
-  const SYSTEM_BANDS = { ps2: 'PLAYSTATION 2', dreamcast: 'DREAMCAST', ps1: 'PLAYSTATION', unknown: 'DISCO' };
-  const PLAYABLE = new Set(['ps2', 'dreamcast']);
+  const SYSTEM_NAMES = { ps4: 'PlayStation 4', ps2: 'PlayStation 2', dreamcast: 'Dreamcast', ps1: 'PlayStation', unknown: 'Disco desconhecido' };
+  const SYSTEM_BANDS = { ps4: 'PLAYSTATION 4', ps2: 'PLAYSTATION 2', dreamcast: 'DREAMCAST', ps1: 'PLAYSTATION', unknown: 'DISCO' };
+  const PLAYABLE = new Set(['ps2', 'dreamcast', 'ps4']);
   try {
     system = localStorage.getItem('odyssey.system') || 'all';
   } catch {
@@ -47,6 +47,7 @@
 
   function videoLabel(g) {
     if (g.platform === 'dreamcast') return 'GD-ROM';
+    if (g.platform === 'ps4') return 'Pasta extraída';
     if (!g.videoMode) return g.platform === 'ps2' ? 'NTSC' : '—';
     return g.videoMode.toUpperCase() === 'PAL' ? 'PAL · 50 Hz' : g.videoMode.toUpperCase();
   }
@@ -98,7 +99,7 @@
     const bar = $('systems');
     const counts = {};
     for (const g of games) counts[g.platform] = (counts[g.platform] || 0) + 1;
-    const tabs = [['all', 'Todos', games.length], ...['ps2', 'dreamcast', 'ps1', 'unknown'].filter((k) => counts[k]).map((k) => [k, SYSTEM_NAMES[k], counts[k]])];
+    const tabs = [['all', 'Todos', games.length], ...['ps4', 'ps2', 'dreamcast', 'ps1', 'unknown'].filter((k) => counts[k]).map((k) => [k, SYSTEM_NAMES[k], counts[k]])];
     if (system !== 'all' && !counts[system]) system = 'all';
     bar.textContent = '';
     bar.hidden = tabs.length <= 2;
@@ -346,6 +347,7 @@
   $('btnBios').addEventListener('click', importBios);
   $('obBios').addEventListener('click', importBios);
   $('btnBiosFolder').addEventListener('click', () => api.openBiosFolder());
+  $('btnPs4Modules').addEventListener('click', () => api.openPs4Modules());
   $('obSkip').addEventListener('click', () => {
     skipOnboarding = true;
     renderOnboarding();
@@ -372,7 +374,7 @@
   $('btnPlay').addEventListener('click', () => selected && play(selected));
   $('btnReveal').addEventListener('click', () => selected && api.reveal(selected));
   $('btnStop').addEventListener('click', () => api.stop());
-  for (const id of ['lnkPcsx2', 'lnkFlycast']) {
+  for (const id of ['lnkPcsx2', 'lnkFlycast', 'lnkShad']) {
     $(id).addEventListener('click', (e) => {
       e.preventDefault();
       api.openExternal(e.currentTarget.href);

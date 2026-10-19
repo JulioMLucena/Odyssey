@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('odyssey', {
   removeFolder: (folder) => ipcRenderer.invoke('folders:remove', folder),
   importBios: () => ipcRenderer.invoke('bios:import'),
   openBiosFolder: () => ipcRenderer.invoke('bios:open'),
+  openPs4Modules: () => ipcRenderer.invoke('ps4:modules'),
   setFullscreen: (on) => ipcRenderer.invoke('settings:fullscreen', on),
   chooseEngine: () => ipcRenderer.invoke('settings:engine', false),
   resetEngine: () => ipcRenderer.invoke('settings:engine', true),

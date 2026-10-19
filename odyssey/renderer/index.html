@@ -39,7 +39,7 @@
         <li id="stepFolder">
           <div class="step-text">
             <h3>Pasta dos jogos</h3>
-            <p>Escolha a pasta dos seus jogos: ISOs de PS2 e discos de Dreamcast (GDI, CDI ou CHD). O Odyssey procura também nas subpastas.</p>
+            <p>Escolha a pasta dos seus jogos: ISOs de PS2, discos de Dreamcast (GDI, CDI ou CHD) e pastas de jogos de PS4. O Odyssey procura também nas subpastas.</p>
             <p class="step-done" id="stepFolderDone" hidden></p>
           </div>
           <button class="primary" id="obFolder" type="button">Escolher pasta</button>
@@ -128,6 +128,14 @@
     </section>
 
     <section class="setting">
+      <h3>PlayStation 4</h3>
+      <p class="muted small">Os jogos de PS4 entram como pasta extraída (CUSAxxxxx, com eboot.bin). Alguns precisam dos módulos de sistema do seu PS4: copie os arquivos .sprx de /system/common/lib para esta pasta.</p>
+      <div class="row">
+        <button class="ghost" id="btnPs4Modules" type="button">Abrir pasta de módulos</button>
+      </div>
+    </section>
+
+    <section class="setting">
       <h3>Tela</h3>
       <label class="toggle" for="optFullscreen">
         <input type="checkbox" id="optFullscreen">
@@ -149,7 +157,8 @@
     <footer class="credits small muted">
       Odyssey <span id="version"></span>. O motor de PS2 é baseado no
       <a href="https://github.com/PCSX2/pcsx2" id="lnkPcsx2">PCSX2</a> (GPL v3) e o de Dreamcast é o
-      <a href="https://github.com/flyinghead/flycast" id="lnkFlycast">Flycast</a> (GPL v2).
+      <a href="https://github.com/flyinghead/flycast" id="lnkFlycast">Flycast</a> (GPL v2) e o de PS4 é o
+      <a href="https://github.com/shadps4-emu/shadPS4" id="lnkShad">shadPS4</a> (GPL v2).
     </footer>
   </aside>
 
