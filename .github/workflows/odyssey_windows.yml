@@ -70,6 +70,26 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path engine 'resources\GameIndex.yaml'))) { throw "GameIndex.yaml missing from the engine" }
           Write-Host "Engine: $($exe.Name)"
 
+      - name: Download the Dreamcast engine (Flycast)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Official Flycast release for Windows x64 (GPL v2, source at github.com/flyinghead/flycast).
+        run: |
+          $rel = gh release view --repo flyinghead/flycast --json tagName,assets | ConvertFrom-Json
+          Write-Host "Flycast $($rel.tagName)"
+          $rel.assets | ForEach-Object { Write-Host "  asset: $($_.name)" }
+          $asset = $rel.assets | Where-Object { $_.name -match '\.zip$' -and $_.name -match 'win' -and $_.name -notmatch 'libretro|arm|uwp|x86\b|i686|win32' } | Select-Object -First 1
+          if (-not $asset) { throw "No Windows x64 Flycast build in release $($rel.tagName)" }
+          gh release download $rel.tagName --repo flyinghead/flycast --pattern $asset.name --dir _flycast
+          Expand-Archive -LiteralPath (Join-Path _flycast $asset.name) -DestinationPath _flycast/x -Force
+          $exe = Get-ChildItem _flycast/x -Recurse -Filter flycast.exe | Select-Object -First 1
+          if (-not $exe) { throw "flycast.exe not found in $($asset.name)" }
+          New-Item -ItemType Directory -Force engines/flycast | Out-Null
+          Copy-Item -LiteralPath $exe.FullName engines/flycast/flycast.exe
+          Set-Content engines/flycast/VERSION.txt "$($rel.tagName) ($($asset.name))"
+          Write-Host "Flycast: $($exe.Length) bytes"
+
       - name: Install launcher dependencies
         run: npm install --no-audit --no-fund
 

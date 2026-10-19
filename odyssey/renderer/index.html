@@ -39,7 +39,7 @@
         <li id="stepFolder">
           <div class="step-text">
             <h3>Pasta dos jogos</h3>
-            <p>Escolha a pasta onde ficam suas ISOs de PS2. O Odyssey procura também nas subpastas.</p>
+            <p>Escolha a pasta dos seus jogos: ISOs de PS2 e discos de Dreamcast (GDI, CDI ou CHD). O Odyssey procura também nas subpastas.</p>
             <p class="step-done" id="stepFolderDone" hidden></p>
           </div>
           <button class="primary" id="obFolder" type="button">Escolher pasta</button>
@@ -47,7 +47,7 @@
         <li id="stepBios">
           <div class="step-text">
             <h3>BIOS do PS2</h3>
-            <p>O motor precisa da BIOS tirada do seu próprio PS2, um arquivo de 4 MB. Ela não vem junto por ser software da Sony.</p>
+            <p>Os jogos de PS2 precisam da BIOS tirada do seu próprio PS2, um arquivo de 4 MB. Ela não vem junto por ser software da Sony. O Dreamcast não precisa.</p>
             <p class="step-done" id="stepBiosDone" hidden></p>
           </div>
           <button class="primary" id="obBios" type="button">Importar BIOS</button>
@@ -83,6 +83,8 @@
           </div>
         </div>
       </article>
+
+      <nav class="systems" id="systems" role="tablist" aria-label="Consoles" hidden></nav>
 
       <div class="shelf-head">
         <h2>Biblioteca</h2>
@@ -145,8 +147,9 @@
     </section>
 
     <footer class="credits small muted">
-      Odyssey <span id="version"></span>. O motor é baseado no
-      <a href="https://github.com/PCSX2/pcsx2" id="lnkPcsx2">PCSX2</a>, software livre sob a licença GPL v3.
+      Odyssey <span id="version"></span>. O motor de PS2 é baseado no
+      <a href="https://github.com/PCSX2/pcsx2" id="lnkPcsx2">PCSX2</a> (GPL v3) e o de Dreamcast é o
+      <a href="https://github.com/flyinghead/flycast" id="lnkFlycast">Flycast</a> (GPL v2).
     </footer>
   </aside>
 

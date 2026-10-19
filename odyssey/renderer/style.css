@@ -178,6 +178,26 @@ main { flex: 1; overflow-y: auto; }
 .warn { margin: 0; color: var(--warn); }
 .feature-actions { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
 
+/* ---------- console tabs ---------- */
+.systems { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 18px; }
+.tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.tab em { font-style: normal; font-size: 12px; color: var(--muted); }
+.tab:hover { color: var(--text); border-color: var(--muted); }
+.tab[aria-selected="true"] { color: var(--brass-ink); background: var(--brass); border-color: var(--brass); }
+.tab[aria-selected="true"] em { color: var(--brass-ink); }
+.systems:not([hidden]) + .shelf-head { border-top: 0; padding-top: 0; }
+
 /* ---------- shelf ---------- */
 .shelf-head { display: flex; align-items: baseline; gap: 12px; border-top: 1px solid var(--line); padding-top: 18px; }
 .shelf-head h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: 0.1em; text-transform: uppercase; }

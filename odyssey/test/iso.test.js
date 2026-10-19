@@ -123,3 +123,43 @@ const noKey = setIniValue('[UI]\nA = 1\n\n[Filenames]\nOther = 2\n\n[X]\nY = 3\n
 assert.ok(noKey.includes('Other = 2\nBIOS = x.bin\n\n[X]'));
 assert.ok(setIniValue('[UI]\nA = 1\n', 'Filenames', 'BIOS', 'x.bin').endsWith('[Filenames]\nBIOS = x.bin\n'));
 console.log('BIOS helpers: all tests passed');
+
+// ---------- Dreamcast ----------
+const { inspectGdi, inspectCdi, chdKind } = require('../src/dreamcast');
+function ipBin(product, title, area) {
+  const b = Buffer.alloc(0x100, 0x20);
+  b.write('SEGA SEGAKATANA ', 0, 'latin1');
+  b.write(area.padEnd(8), 0x30, 'latin1');
+  b.write(product.padEnd(10), 0x40, 'latin1');
+  b.write('V1.004', 0x4a, 'latin1');
+  b.write(title.padEnd(128), 0x80, 'latin1');
+  return b;
+}
+const dcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'odyssey-dc-'));
+const t3 = Buffer.concat([Buffer.alloc(16), ipBin('MK-51000', 'SONIC ADVENTURE', 'JUE'), Buffer.alloc(4096)]);
+fs.writeFileSync(path.join(dcDir, 'track03.bin'), t3);
+fs.writeFileSync(path.join(dcDir, 'game.gdi'), '3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3 45000 4 2352 track03.bin 0\n');
+const gdi = inspectGdi(path.join(dcDir, 'game.gdi'));
+assert.strictEqual(gdi.platform, 'dreamcast');
+assert.strictEqual(gdi.serial, 'MK-51000');
+assert.strictEqual(gdi.internalTitle, 'SONIC ADVENTURE');
+assert.strictEqual(gdi.region, 'Japão · América do Norte · Europa');
+fs.writeFileSync(path.join(dcDir, 'game.cdi'), Buffer.concat([Buffer.alloc(300000), ipBin('T-9504N', 'CRAZY TAXI', 'U'), Buffer.alloc(1000)]));
+assert.strictEqual(inspectCdi(path.join(dcDir, 'game.cdi')).serial, 'T-9504N');
+
+function fakeChd(tag) {
+  const head = Buffer.alloc(124);
+  head.write('MComprHD', 0, 'latin1');
+  head.writeUInt32BE(124, 8);
+  head.writeUInt32BE(5, 12);
+  head.writeBigUInt64BE(200n, 48);
+  const meta = Buffer.alloc(16);
+  meta.write(tag, 0, 'latin1');
+  return Buffer.concat([head, Buffer.alloc(76), meta]);
+}
+fs.writeFileSync(path.join(dcDir, 'a.chd'), fakeChd('CHGD'));
+fs.writeFileSync(path.join(dcDir, 'b.chd'), fakeChd('DVD '));
+assert.strictEqual(chdKind(path.join(dcDir, 'a.chd')), 'dreamcast');
+assert.strictEqual(chdKind(path.join(dcDir, 'b.chd')), 'ps2');
+fs.rmSync(dcDir, { recursive: true, force: true });
+console.log('Dreamcast reader: all tests passed');

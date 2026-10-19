@@ -9,6 +9,16 @@
   let selected = null; // game path
   let filter = '';
   let skipOnboarding = false;
+  let system = 'all';
+
+  const SYSTEM_NAMES = { ps2: 'PlayStation 2', dreamcast: 'Dreamcast', ps1: 'PlayStation', unknown: 'Disco desconhecido' };
+  const SYSTEM_BANDS = { ps2: 'PLAYSTATION 2', dreamcast: 'DREAMCAST', ps1: 'PLAYSTATION', unknown: 'DISCO' };
+  const PLAYABLE = new Set(['ps2', 'dreamcast']);
+  try {
+    system = localStorage.getItem('odyssey.system') || 'all';
+  } catch {
+    /* no storage */
+  }
 
   // ---------- helpers ----------
 
@@ -36,6 +46,7 @@
   }
 
   function videoLabel(g) {
+    if (g.platform === 'dreamcast') return 'GD-ROM';
     if (!g.videoMode) return g.platform === 'ps2' ? 'NTSC' : '—';
     return g.videoMode.toUpperCase() === 'PAL' ? 'PAL · 50 Hz' : g.videoMode.toUpperCase();
   }
@@ -62,7 +73,7 @@
     fb.className = 'fallback';
     const band = document.createElement('div');
     band.className = 'fb-band';
-    band.textContent = g.platform === 'ps2' ? 'PLAYSTATION 2' : g.platform === 'ps1' ? 'PLAYSTATION' : 'DISCO';
+    band.textContent = SYSTEM_BANDS[g.platform] || 'DISCO';
     const title = document.createElement('div');
     title.className = 'fb-title';
     title.textContent = g.title;
@@ -76,9 +87,43 @@
   // ---------- rendering ----------
 
   function visibleGames() {
-    if (!filter) return games;
+    let list = system === 'all' ? games : games.filter((g) => g.platform === system);
+    if (!filter) return list;
     const q = filter.toLowerCase();
-    return games.filter((g) => g.title.toLowerCase().includes(q) || (g.serial || '').toLowerCase().includes(q));
+    return list.filter((g) => g.title.toLowerCase().includes(q) || (g.serial || '').toLowerCase().includes(q));
+  }
+
+  // One tab per console that has at least one game, plus "Todos".
+  function renderTabs() {
+    const bar = $('systems');
+    const counts = {};
+    for (const g of games) counts[g.platform] = (counts[g.platform] || 0) + 1;
+    const tabs = [['all', 'Todos', games.length], ...['ps2', 'dreamcast', 'ps1', 'unknown'].filter((k) => counts[k]).map((k) => [k, SYSTEM_NAMES[k], counts[k]])];
+    if (system !== 'all' && !counts[system]) system = 'all';
+    bar.textContent = '';
+    bar.hidden = tabs.length <= 2;
+    for (const [key, label, n] of tabs) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tab';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(key === system));
+      b.innerHTML = `<span></span><em class="mono"></em>`;
+      b.firstChild.textContent = label;
+      b.lastChild.textContent = n;
+      b.addEventListener('click', () => {
+        system = key;
+        try {
+          localStorage.setItem('odyssey.system', key);
+        } catch {
+          /* no storage */
+        }
+        const list = visibleGames();
+        if (!list.find((g) => g.path === selected)) selected = list[0] ? list[0].path : null;
+        render();
+      });
+      bar.appendChild(b);
+    }
   }
 
   function renderShelf() {
@@ -129,7 +174,7 @@
     cov.textContent = '';
     cov.appendChild(coverNode(g));
     $('featureEyebrow').textContent =
-      (g.platform === 'ps2' ? 'PlayStation 2' : g.platform === 'ps1' ? 'PlayStation' : 'Disco desconhecido') +
+      (SYSTEM_NAMES[g.platform] || SYSTEM_NAMES.unknown) +
       (g.version ? ` · versão ${g.version}` : '');
     $('featureTitle').textContent = g.title;
     $('fSerial').textContent = g.serial || '—';
@@ -145,13 +190,14 @@
     const err = $('fError');
     let warn = g.error;
     if (!warn && g.platform === 'ps1') warn = 'Isso é um disco de PS1. O motor atual é de PS2, então esse jogo ainda não roda aqui.';
-    if (!warn && g.platform === 'unknown') warn = 'Esse disco não parece ser de PlayStation.';
+    if (!warn && g.platform === 'unknown') warn = 'Ainda não sei de qual console é esse disco.';
     err.hidden = !warn;
     err.textContent = warn || '';
-    $('btnPlay').disabled = g.platform !== 'ps2';
+    $('btnPlay').disabled = !PLAYABLE.has(g.platform);
   }
 
   function render() {
+    renderTabs();
     renderShelf();
     renderFeature();
   }
@@ -228,7 +274,7 @@
   }
 
   async function loadCovers() {
-    const missing = games.filter((g) => g.serial && !g.coverUrl);
+    const missing = games.filter((g) => g.platform === 'ps2' && g.serial && !g.coverUrl);
     for (const g of missing) {
       const url = await api.cover(g.serial);
       if (url) {
@@ -254,7 +300,7 @@
 
   async function play(p) {
     const g = games.find((x) => x.path === p);
-    if (!g || g.platform !== 'ps2') return;
+    if (!g || !PLAYABLE.has(g.platform)) return;
     const r = await api.play(p);
     if (!r.ok) {
       toast(r.error, true);
@@ -326,10 +372,12 @@
   $('btnPlay').addEventListener('click', () => selected && play(selected));
   $('btnReveal').addEventListener('click', () => selected && api.reveal(selected));
   $('btnStop').addEventListener('click', () => api.stop());
-  $('lnkPcsx2').addEventListener('click', (e) => {
-    e.preventDefault();
-    api.openExternal(e.currentTarget.href);
-  });
+  for (const id of ['lnkPcsx2', 'lnkFlycast']) {
+    $(id).addEventListener('click', (e) => {
+      e.preventDefault();
+      api.openExternal(e.currentTarget.href);
+    });
+  }
   $('search').addEventListener('input', (e) => {
     filter = e.target.value.trim();
     renderShelf();

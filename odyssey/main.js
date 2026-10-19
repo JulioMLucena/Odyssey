@@ -9,9 +9,17 @@ const { pathToFileURL } = require('url');
 const { inspectIso } = require('./src/iso');
 const { loadGameIndex, lookup } = require('./src/gamedb');
 const { biosInfo, pickBios, setIniValue } = require('./src/bios');
+const { inspectDreamcast, chdKind, MAGIC: KATANA } = require('./src/dreamcast');
 
 const COVER_URL = (serial) => `https://raw.githubusercontent.com/xlenore/ps2-covers/main/covers/default/${serial}.jpg`;
-const GAME_EXTENSIONS = new Set(['.iso']);
+const GAME_EXTENSIONS = new Set(['.iso', '.gdi', '.cdi', '.chd']);
+// Bump when the way games are identified changes, so cached entries get inspected again.
+const LIBRARY_VERSION = 2;
+
+const SYSTEMS = {
+  ps2: { name: 'PlayStation 2', needsBios: true },
+  dreamcast: { name: 'Dreamcast', needsBios: false },
+};
 
 let win = null;
 let running = null; // { child, key, startedAt }
@@ -44,6 +52,35 @@ function enginePath() {
   const custom = store.enginePath;
   if (custom && fs.existsSync(custom)) return custom;
   return findEngineExe(bundledEngineDir());
+}
+
+// ---------- Dreamcast engine (Flycast) ----------
+// Flycast keeps emu.cfg and its data folder (VMU saves) next to its .exe. The installed app folder is
+// replaced on every update, so Odyssey runs a copy that lives in its own data folder.
+const flycastHome = () => path.join(userDir(), 'engines', 'flycast');
+
+function bundledFlycast() {
+  const dir = app.isPackaged ? path.join(process.resourcesPath, 'engines', 'flycast') : path.join(__dirname, 'engines', 'flycast');
+  const exe = path.join(dir, 'flycast.exe');
+  return fs.existsSync(exe) ? exe : null;
+}
+
+function flycastPath() {
+  const src = bundledFlycast();
+  if (!src) return null;
+  const dest = path.join(flycastHome(), 'flycast.exe');
+  try {
+    const a = fs.statSync(src);
+    const b = fs.existsSync(dest) ? fs.statSync(dest) : null;
+    if (!b || b.size !== a.size || Math.abs(b.mtimeMs - a.mtimeMs) > 2000) {
+      fs.mkdirSync(flycastHome(), { recursive: true });
+      fs.copyFileSync(src, dest);
+      fs.utimesSync(dest, a.atime, a.mtime);
+    }
+    return dest;
+  } catch {
+    return src;
+  }
 }
 
 function gameIndexPath() {
@@ -91,16 +128,52 @@ function prettyFileName(file) {
   return path
     .basename(file, path.extname(file))
     .replace(/\s*\((?:En|Fr|De|Es|It|Pt|Ja|Nl|Sv|No|Da|Fi|Pl|Ru)(?:,[A-Za-z]{2})*\)\s*/g, ' ')
+    .replace(/\s*\((?:USA|Europe|Japan|World|Brazil|Rev \d+|Disc \d+)[^)]*\)\s*/gi, ' ')
+    .replace(/\s*\[[^\]]*\]\s*/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Dreamcast dumps are often just "disc.gdi"; then the title stored on the disc is the better name.
+function gameTitle(file, info) {
+  const fromFile = prettyFileName(file);
+  const generic = /^(disc|disk|game|track\s*\d*|cd\s*\d*)$/i.test(fromFile);
+  if (generic && info.internalTitle) {
+    return info.internalTitle.toLowerCase().replace(/(^|[\s:-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  }
+  if (generic) return path.basename(path.dirname(file));
+  return fromFile;
 }
 
 function statKey(game) {
   return game.serial || game.path;
 }
 
+function inspectFile(file) {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === '.gdi' || ext === '.cdi') return inspectDreamcast(file);
+  if (ext === '.chd') {
+    const kind = chdKind(file);
+    if (kind === 'dreamcast' || kind === 'ps2') return { ok: true, platform: kind, serial: null };
+    return { ok: false, platform: 'unknown', reason: 'CHD de CD: ainda não sei dizer de qual console é.' };
+  }
+  const info = inspectIso(file);
+  if (info.platform === 'unknown') {
+    // A Dreamcast data image saved as .iso starts straight with IP.BIN.
+    const fd = fs.openSync(file, 'r');
+    try {
+      const head = Buffer.alloc(0x100);
+      fs.readSync(fd, head, 0, 0x100, 0);
+      if (head.subarray(0, KATANA.length).equals(KATANA)) return require('./src/dreamcast').parseIpBin(head, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+  return info;
+}
+
 function buildGame(file, info, db) {
-  const meta = lookup(db, info.serial);
+  const meta = info.platform === 'ps2' ? lookup(db, info.serial) : null;
   const st = fs.statSync(file);
   return {
     path: file,
@@ -109,7 +182,7 @@ function buildGame(file, info, db) {
     mtime: st.mtimeMs,
     platform: info.platform || 'unknown',
     serial: info.serial || null,
-    title: (meta && meta.name) || prettyFileName(file),
+    title: (meta && meta.name) || gameTitle(file, info),
     region: info.region || null,
     regionCode: (meta && meta.region) || null,
     videoMode: info.videoMode || null,
@@ -118,6 +191,7 @@ function buildGame(file, info, db) {
     compat: meta ? meta.compat : null,
     compatLabel: meta ? meta.compatLabel : null,
     error: info.ok ? null : info.reason,
+    v: LIBRARY_VERSION,
   };
 }
 
@@ -135,15 +209,15 @@ function scanLibrary() {
       continue;
     }
     const cached = store.games[file];
-    if (cached && cached.size === st.size && cached.mtime === st.mtimeMs && cached.compat !== undefined) {
+    if (cached && cached.size === st.size && cached.mtime === st.mtimeMs && cached.v === LIBRARY_VERSION) {
       // Refresh DB fields in case the engine (and its GameIndex) was updated.
-      const meta = lookup(db, cached.serial);
+      const meta = cached.platform === 'ps2' ? lookup(db, cached.serial) : null;
       games[file] = meta ? { ...cached, title: meta.name || cached.title, compat: meta.compat, compatLabel: meta.compatLabel } : cached;
       continue;
     }
     let info;
     try {
-      info = inspectIso(file);
+      info = inspectFile(file);
     } catch (e) {
       info = { ok: false, reason: 'Não consegui ler o arquivo: ' + e.message };
     }
@@ -158,7 +232,7 @@ function libraryView() {
   return Object.values(store.games)
     .map((g) => {
       const s = store.stats[statKey(g)] || {};
-      const cover = g.serial ? path.join(coversDir(), g.serial + '.jpg') : null;
+      const cover = g.serial && g.platform === 'ps2' ? path.join(coversDir(), g.serial + '.jpg') : null;
       return {
         ...g,
         playSeconds: s.seconds || 0,
@@ -274,10 +348,13 @@ function engineArgs(extra) {
 function launchEngine(args, key) {
   const exe = enginePath();
   if (!exe) return { ok: false, error: 'O motor do Odyssey não foi encontrado. Indique o executável em Ajustes.' };
-  if (running) return { ok: false, error: 'Já tem um jogo aberto. Feche ele antes de abrir outro.' };
   fs.mkdirSync(biosDir(), { recursive: true });
+  return startProcess(exe, engineArgs(args), key);
+}
 
-  const child = spawn(exe, engineArgs(args), { cwd: path.dirname(exe), detached: false, stdio: 'ignore' });
+function startProcess(exe, args, key) {
+  if (running) return { ok: false, error: 'Já tem um jogo aberto. Feche ele antes de abrir outro.' };
+  const child = spawn(exe, args, { cwd: path.dirname(exe), detached: false, stdio: 'ignore' });
   running = { child, key, startedAt: Date.now() };
   child.on('error', (e) => finishRun(e.message));
   child.on('exit', () => finishRun(null));
@@ -318,6 +395,7 @@ function status() {
     engine: enginePath(),
     engineCustom: store.enginePath,
     bios: listBios(),
+    dreamcast: Boolean(bundledFlycast()),
     biosDir: biosDir(),
     running: running ? running.key : null,
     version: app.getVersion(),
@@ -390,6 +468,13 @@ ipcMain.handle('game:play', (_e, file) => {
   const game = store.games[file];
   if (!game) return { ok: false, error: 'Esse jogo não está mais na biblioteca. Atualize a lista.' };
   if (!fs.existsSync(file)) return { ok: false, error: 'O arquivo do jogo não foi encontrado. Ele foi movido ou apagado?' };
+  if (game.platform === 'dreamcast') {
+    const exe = flycastPath();
+    if (!exe) return { ok: false, error: 'O motor de Dreamcast não veio nesta versão do Odyssey.' };
+    const args = ['-config', `window:fullscreen=${store.fullscreen ? 'yes' : 'no'}`, file];
+    return startProcess(exe, args, statKey(game));
+  }
+  if (game.platform !== 'ps2') return { ok: false, error: 'Esse disco ainda não tem um motor no Odyssey.' };
   if (listBios().length === 0) return { ok: false, needsBios: true, error: 'Falta a BIOS do PS2. Importe ela em Ajustes antes de jogar.' };
   const bios = selectBiosFor(game.serial);
   const args = ['-batch', '-nogui'];

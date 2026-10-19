@@ -1,7 +1,13 @@
 # Odyssey
 
-Odyssey é um emulador de PlayStation 2 para Windows: uma biblioteca em Electron por cima de um motor
-baseado no [PCSX2](https://github.com/PCSX2/pcsx2).
+Odyssey é um hub de emuladores para Windows: uma biblioteca em Electron que abre cada jogo no motor certo.
+
+| Console | Motor | Formatos | BIOS |
+| --- | --- | --- | --- |
+| PlayStation 2 | fork do [PCSX2](https://github.com/PCSX2/pcsx2) (GPL v3) | `.iso`, `.chd` | a do seu PS2 |
+| Dreamcast | [Flycast](https://github.com/flyinghead/flycast) (GPL v2), build oficial | `.gdi`, `.cdi`, `.chd` | não precisa |
+
+O Flycast guarda configurações e saves de VMU em `%APPDATA%\Odyssey\engines\flycast`.
 
 ## Como baixar
 

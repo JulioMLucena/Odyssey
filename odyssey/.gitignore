@@ -2,3 +2,5 @@ node_modules/
 dist/
 engine/
 _engine_artifacts/
+engines/
+_flycast/
