@@ -10,13 +10,46 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The engine only needs rebuilding when its own code changes. Its cache key is a hash of every
+  # top-level folder except odyssey/ (the launcher) and .github/, plus the two engine build workflows.
+  check:
+    name: "Motor: precisa compilar?"
+    runs-on: ubuntu-latest
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.lookup.outputs.cache-hit }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Engine cache key
+        id: key
+        run: |
+          trees=$(git ls-tree HEAD | grep -vP '\t(odyssey|\.github)$')
+          flows=$(sha256sum .github/workflows/windows_build_qt.yml .github/workflows/windows_deps_build.yml)
+          hash=$(printf '%s\n%s' "$trees" "$flows" | sha256sum | cut -c1-20)
+          echo "key=odyssey-engine-sse4-$hash" >> "$GITHUB_OUTPUT"
+          echo "Engine key: odyssey-engine-sse4-$hash"
+
+      - name: Look for a saved engine
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: odyssey/engine
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+          enableCrossOsArchive: true
+
   engine_deps:
     name: "Motor: dependências"
+    needs: check
+    if: needs.check.outputs.hit != 'true'
     uses: ./.github/workflows/windows_deps_build.yml
 
   engine:
     name: "Motor"
-    needs: engine_deps
+    needs: [check, engine_deps]
+    if: needs.check.outputs.hit != 'true'
     uses: ./.github/workflows/windows_build_qt.yml
     with:
       jobName: "Odyssey Engine (SSE4)"
@@ -28,7 +61,9 @@ jobs:
 
   launcher:
     name: "Launcher Electron"
-    needs: engine
+    needs: [check, engine]
+    # Runs after a fresh engine build, or straight away when the saved engine is still valid.
+    if: always() && needs.check.result == 'success' && (needs.engine.result == 'success' || needs.engine.result == 'skipped')
     runs-on: windows-latest
     # Needed to publish the GitHub Release that the auto-updater reads.
     permissions:
@@ -46,13 +81,24 @@ jobs:
         with:
           node-version: 20
 
+      - name: Use the saved engine
+        if: needs.check.outputs.hit == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: odyssey/engine
+          key: ${{ needs.check.outputs.key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+
       - name: Download engine build
+        if: needs.check.outputs.hit != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: Odyssey-engine-*
           path: odyssey/_engine_artifacts
 
       - name: Place engine inside the launcher
+        if: needs.check.outputs.hit != 'true'
         shell: pwsh
         run: |
           $dir = Get-ChildItem _engine_artifacts -Directory | Where-Object { $_.Name -notlike '*-symbols' } | Select-Object -First 1
@@ -68,6 +114,21 @@ jobs:
             throw "Engine executable missing from odyssey/engine"
           }
           if (-not (Test-Path -LiteralPath (Join-Path engine 'resources\GameIndex.yaml'))) { throw "GameIndex.yaml missing from the engine" }
+          Write-Host "Engine: $($exe.Name)"
+
+      - name: Save the engine for the next builds
+        if: needs.check.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: odyssey/engine
+          key: ${{ needs.check.outputs.key }}
+          enableCrossOsArchive: true
+
+      - name: Check engine
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem engine -File | Where-Object { $_.Name -like 'pcsx2-qt*.exe' } | Select-Object -First 1
+          if (-not $exe) { throw "Engine executable missing from odyssey/engine" }
           Write-Host "Engine: $($exe.Name)"
 
       - name: Download the Dreamcast engine (Flycast)
